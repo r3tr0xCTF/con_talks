@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ROS2Reaper — DEF CON Arsenal</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&family=IBM+Plex+Mono:wght@300;400;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --red: #ff2a2a;
+    --red-dim: #c41c1c;
+    --amber: #ffb800;
+    --green: #00ff88;
+    --green-dim: #00c966;
+    --cyan: #00d4ff;
+    --bg: #080a0c;
+    --surface: #0d1117;
+    --surface2: #161b22;
+    --border: #21262d;
+    --text: #c9d1d9;
+    --text-dim: #6e7681;
+  }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    overflow: hidden;
+  }
+
+  /* Scanline overlay */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.08) 2px,
+      rgba(0,0,0,0.08) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* CRT flicker */
+  @keyframes flicker {
+    0%, 98%, 100% { opacity: 1; }
+    99% { opacity: 0.92; }
+  }
+  body { animation: flicker 8s infinite; }
+
+  #slideshow {
+    width: 100%; height: 100%;
+    position: relative;
+  }
+
+  .slide {
+    position: absolute; inset: 0;
+    display: none;
+    flex-direction: column;
+    padding: 48px 64px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  .slide.active {
+    display: flex;
+    opacity: 1;
+  }
+
+  /* NAV */
+  #nav {
+    position: fixed;
+    bottom: 28px; left: 50%;
+    transform: translateX(-50%);
+    display: flex; align-items: center; gap: 20px;
+    z-index: 1000;
+    background: rgba(13,17,23,0.9);
+    border: 1px solid var(--border);
+    padding: 10px 24px;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+  }
+
+  #nav button {
+    background: none; border: 1px solid var(--border);
+    color: var(--green); font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px; padding: 4px 14px; cursor: pointer;
+    letter-spacing: 0.1em;
+    transition: all 0.15s;
+  }
+  #nav button:hover { background: var(--green); color: var(--bg); border-color: var(--green); }
+
+  #slide-counter { color: var(--text-dim); }
+
+  /* ─── SHARED COMPONENTS ─── */
+  .tag {
+    display: inline-block;
+    font-size: 10px; letter-spacing: 0.15em;
+    padding: 2px 10px;
+    border: 1px solid var(--red);
+    color: var(--red);
+    text-transform: uppercase;
+    margin-bottom: 20px;
+  }
+  .tag.green { border-color: var(--green); color: var(--green); }
+  .tag.amber { border-color: var(--amber); color: var(--amber); }
+  .tag.cyan  { border-color: var(--cyan);  color: var(--cyan); }
+
+  h1 {
+    font-family: 'Orbitron', monospace;
+    font-size: clamp(36px, 5vw, 64px);
+    font-weight: 900;
+    line-height: 1.0;
+    color: var(--red);
+    text-shadow: 0 0 40px rgba(255,42,42,0.4);
+    letter-spacing: -0.02em;
+  }
+
+  h2 {
+    font-family: 'Orbitron', monospace;
+    font-size: clamp(20px, 2.8vw, 36px);
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: 0.02em;
+    margin-bottom: 32px;
+  }
+
+  h3 {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 14px;
+    color: var(--green);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+
+  p { line-height: 1.7; color: var(--text); font-size: 15px; }
+
+  .mono { font-family: 'Share Tech Mono', monospace; }
+
+  /* Code block */
+  .code-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--green);
+    padding: 16px 20px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 13px;
+    line-height: 1.8;
+    color: #8b949e;
+    overflow-x: auto;
+  }
+  .code-block .kw  { color: var(--red); }
+  .code-block .fn  { color: #79c0ff; }
+  .code-block .str { color: var(--amber); }
+  .code-block .cm  { color: var(--text-dim); }
+  .code-block .gr  { color: var(--green); }
+
+  /* Grid layouts */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+
+  /* Card */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 20px 24px;
+  }
+  .card.red-glow   { border-left: 3px solid var(--red); }
+  .card.green-glow { border-left: 3px solid var(--green); }
+  .card.amber-glow { border-left: 3px solid var(--amber); }
+  .card.cyan-glow  { border-left: 3px solid var(--cyan); }
+
+  .card h3 { margin-bottom: 8px; font-size: 12px; }
+  .card p  { font-size: 13px; color: #8b949e; line-height: 1.6; }
+  .card ul { padding-left: 0; list-style: none; }
+  .card ul li { font-size: 13px; color: #8b949e; padding: 2px 0; line-height: 1.6; }
+  .card ul li::before { content: '› '; color: var(--green); }
+
+  /* Divider */
+  .divider {
+    width: 60px; height: 2px;
+    background: var(--red);
+    margin: 16px 0 24px;
+  }
+  .divider.green { background: var(--green); }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th {
+    text-align: left; padding: 8px 14px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase;
+    color: var(--green); border-bottom: 1px solid var(--border);
+  }
+  td { padding: 9px 14px; border-bottom: 1px solid rgba(33,38,45,0.6); color: #8b949e; }
+  tr:hover td { background: rgba(255,42,42,0.04); }
+  .td-red   { color: var(--red) !important; }
+  .td-green { color: var(--green) !important; }
+  .td-amber { color: var(--amber) !important; }
+
+  /* Attack chain */
+  .chain {
+    display: flex; align-items: stretch; gap: 0;
+    margin-top: 20px;
+  }
+  .chain-step {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-right: none;
+    padding: 18px 16px;
+    position: relative;
+  }
+  .chain-step:last-child { border-right: 1px solid var(--border); }
+  .chain-step::after {
+    content: '▶';
+    position: absolute; right: -10px; top: 50%;
+    transform: translateY(-50%);
+    color: var(--red); font-size: 12px;
+    z-index: 2;
+    background: var(--bg);
+    padding: 2px 0;
+  }
+  .chain-step:last-child::after { display: none; }
+  .chain-step .step-num {
+    font-family: 'Orbitron', monospace;
+    font-size: 10px; color: var(--red);
+    letter-spacing: 0.2em; margin-bottom: 6px;
+  }
+  .chain-step h4 {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 12px; color: #fff;
+    margin-bottom: 6px;
+  }
+  .chain-step p { font-size: 11px; color: var(--text-dim); line-height: 1.5; }
+
+  /* Blink cursor */
+  @keyframes blink { 50% { opacity: 0; } }
+  .cursor::after {
+    content: '█';
+    color: var(--green);
+    animation: blink 1s step-end infinite;
+    margin-left: 2px;
+  }
+
+  /* Slide-specific: TITLE */
+  #s1 {
+    justify-content: center;
+    background:
+      radial-gradient(ellipse 60% 40% at 80% 50%, rgba(255,42,42,0.06) 0%, transparent 70%),
+      radial-gradient(ellipse 40% 60% at 20% 80%, rgba(0,255,136,0.03) 0%, transparent 60%),
+      var(--bg);
+  }
+
+  .skull {
+    font-size: 80px;
+    line-height: 1;
+    filter: drop-shadow(0 0 30px rgba(255,42,42,0.5));
+    margin-bottom: 24px;
+    display: block;
+    animation: pulse 3s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { filter: drop-shadow(0 0 20px rgba(255,42,42,0.4)); }
+    50% { filter: drop-shadow(0 0 50px rgba(255,42,42,0.8)); }
+  }
+
+  .subtitle {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: clamp(13px, 1.8vw, 18px);
+    color: var(--text-dim);
+    margin-top: 16px;
+    letter-spacing: 0.08em;
+  }
+
+  .meta {
+    margin-top: 40px;
+    display: flex; gap: 40px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 12px;
+  }
+  .meta-item { color: var(--text-dim); }
+  .meta-item span { color: var(--green); display: block; font-size: 11px; margin-bottom: 2px; letter-spacing: 0.15em; }
+
+  /* Progress line */
+  .progress {
+    position: fixed; top: 0; left: 0;
+    height: 2px; background: var(--red);
+    transition: width 0.3s ease;
+    box-shadow: 0 0 8px var(--red);
+    z-index: 1001;
+  }
+
+  /* slide numbers top right */
+  .slide-label {
+    position: absolute; top: 24px; right: 64px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px; color: var(--text-dim);
+    letter-spacing: 0.2em;
+  }
+
+  /* Section header slides */
+  .section-slide {
+    justify-content: center;
+    align-items: flex-start;
+    background:
+      linear-gradient(135deg, rgba(255,42,42,0.05) 0%, transparent 50%),
+      var(--bg);
+  }
+
+  /* Highlight text */
+  .highlight-red  { color: var(--red); }
+  .highlight-green { color: var(--green); }
+  .highlight-amber { color: var(--amber); }
+  .highlight-cyan  { color: var(--cyan); }
+
+  /* Module grid */
+  .module-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-top: 2px solid var(--red);
+    padding: 16px;
+  }
+  .module-item.phase2 { border-top-color: var(--amber); }
+  .module-item h4 {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 12px; color: #fff;
+    margin-bottom: 4px; letter-spacing: 0.05em;
+  }
+  .module-item p { font-size: 11px; color: var(--text-dim); line-height: 1.5; }
+
+  /* Lab table row */
+  .lab-row { display: flex; gap: 12px; margin-bottom: 10px; }
+  .lab-badge {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px; padding: 2px 8px;
+    border: 1px solid; border-radius: 0;
+    white-space: nowrap;
+  }
+  .lb-red   { color: var(--red);   border-color: var(--red); }
+  .lb-green { color: var(--green); border-color: var(--green); }
+  .lb-cyan  { color: var(--cyan);  border-color: var(--cyan); }
+  .lb-amber { color: var(--amber); border-color: var(--amber); }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; height: 100%; }
+  .two-col.left-wide { grid-template-columns: 1.4fr 1fr; }
+
+</style>
+</head>
+<body>
+
+<div class="progress" id="progress"></div>
+
+<div id="slideshow">
+
+  <!-- SLIDE 1: TITLE -->
+  <div class="slide active" id="s1">
+    <span class="skull">💀</span>
+    <div class="tag">DEF CON Arsenal · Black Hat · IoT Village</div>
+    <h1>ROS2<br>REAPER</h1>
+    <p class="subtitle">Offensive Security Toolkit for ROS 2 / DDS Environments</p>
+    <div class="divider"></div>
+    <div class="meta">
+      <div class="meta-item"><span>RESEARCHER</span>Gh057x</div>
+      <div class="meta-item"><span>VERSION</span>2.0.0 — Phase 2</div>
+      <div class="meta-item"><span>TARGET</span>ROS 2 Humble / Jazzy</div>
+      <div class="meta-item"><span>PROTOCOL</span>DDS / RTPS</div>
+    </div>
+    <div class="slide-label">01 / 10</div>
+  </div>
+
+  <!-- SLIDE 2: THREAT LANDSCAPE -->
+  <div class="slide" id="s2">
+    <div class="slide-label">02 / 10</div>
+    <div class="tag">THE PROBLEM</div>
+    <h2>Robots Are Networked.<br>Security Tooling Isn't.</h2>
+    <div class="divider"></div>
+    <div class="two-col">
+      <div>
+        <p style="margin-bottom:20px;">ROS 2 now powers <span class="highlight-red">autonomous vehicles, surgical robots, industrial AMRs</span> and critical infrastructure — all communicating over an <span class="highlight-amber">unauthenticated, multicast DDS bus</span> by default.</p>
+        <p style="margin-bottom:24px;">The ROS 1 era had ROSPenTo. ROS 2 has <span class="highlight-green">nothing</span>. No pentest tooling exists that operates at the RTPS wire layer against modern DDS middleware.</p>
+        <div class="code-block">
+<span class="cm"># Default ROS 2 — zero auth, open multicast</span>
+<span class="gr">$</span> ros2 topic list
+/robot1/cmd_vel          <span class="cm"># velocity control — public</span>
+/robot1/scan             <span class="cm"># LIDAR sensor — public</span>
+/robot2/navigate_to_pose <span class="cm"># nav goals — public</span>
+<span class="kw">→ Any participant on the subnet can read/write all topics</span>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <div class="card red-glow">
+          <h3>Attack Surface</h3>
+          <ul>
+            <li>Unauthenticated SPDP multicast discovery</li>
+            <li>No publisher authorization by default</li>
+            <li>DDS domain = flat broadcast domain</li>
+            <li>RTPS UDP reachable from entire subnet</li>
+          </ul>
+        </div>
+        <div class="card amber-glow">
+          <h3>Real-World Stakes</h3>
+          <ul>
+            <li>Industrial AMR route manipulation</li>
+            <li>LIDAR blinding → navigation failure</li>
+            <li>Command injection → physical damage</li>
+            <li>Covert sensor data exfiltration</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 3: WHAT IS ROS2REAPER -->
+  <div class="slide" id="s3">
+    <div class="slide-label">03 / 10</div>
+    <div class="tag green">THE TOOL</div>
+    <h2>What is ROS2Reaper?</h2>
+    <div class="divider green"></div>
+    <p style="margin-bottom:28px;max-width:700px;">A <span class="highlight-green">modular Python offensive security framework</span> that operates against ROS 2 environments at both the DDS/RTPS wire layer and the ROS 2 application layer — filling the tooling gap left since ROSPenTo became obsolete.</p>
+    <div class="grid-2" style="gap:16px;">
+      <div class="card green-glow">
+        <h3>Layer 1 — DDS / RTPS Protocol</h3>
+        <ul>
+          <li>Participant discovery via SPDP multicast probing</li>
+          <li>Full RTPS packet dissection (Scapy-based)</li>
+          <li>Vendor fingerprinting (Fast DDS, Cyclone, Connext)</li>
+          <li>Port prediction via DDS domain formulae</li>
+          <li>DDS-Security token analysis</li>
+        </ul>
+      </div>
+      <div class="card red-glow">
+        <h3>Layer 2 — ROS 2 Application</h3>
+        <ul>
+          <li>Topic / service / action enumeration via SEDP</li>
+          <li>Node impersonation (rogue DDS participant)</li>
+          <li>cmd_vel & nav_goal injection attacks</li>
+          <li>LIDAR blinding via fake LaserScan publish</li>
+          <li>RTPS amplification / reflection PoC</li>
+        </ul>
+      </div>
+    </div>
+    <div style="margin-top:20px;" class="code-block">
+<span class="cm"># Single unified CLI</span>
+<span class="gr">$</span> ros2reaper --mode discover --interface eth0 --domain 0
+<span class="gr">$</span> ros2reaper --mode fingerprint --target 172.20.0.10
+<span class="gr">$</span> ros2reaper --mode inject --topic /robot1/cmd_vel --payload emergency_stop
+    </div>
+  </div>
+
+  <!-- SLIDE 4: ARCHITECTURE -->
+  <div class="slide" id="s4">
+    <div class="slide-label">04 / 10</div>
+    <div class="tag">ARCHITECTURE</div>
+    <h2>Modular Design</h2>
+    <div class="divider"></div>
+    <div class="two-col left-wide">
+      <div>
+        <div class="code-block" style="font-size:12px;line-height:2;">
+<span class="gr">ros2reaper/</span>
+├── <span class="fn">ros2reaper.py</span>         <span class="cm"># Unified CLI entry point</span>
+├── core/
+│   ├── <span class="fn">rtps_scanner.py</span>   <span class="cm"># RTPS discovery engine</span>
+│   ├── <span class="fn">rtps_parser.py</span>    <span class="cm"># Protocol dissector (Scapy)</span>
+│   └── <span class="fn">config.py</span>
+├── modules/
+│   ├── <span class="fn">discovery.py</span>      <span class="cm"># DDS participant enum</span>
+│   ├── <span class="fn">fingerprint.py</span>    <span class="cm"># 7-layer DDS fingerprint</span>
+│   ├── <span class="fn">topic_enum.py</span>     <span class="cm"># ROS 2 topic enum via SEDP</span>
+│   ├── <span class="fn">sros2_audit.py</span>    <span class="cm"># 8-check SROS2 auditor</span>
+│   ├── <span class="kw">topic_injection.py</span> <span class="cm"># ★ Phase 2</span>
+│   ├── <span class="kw">node_impersonation.py</span> <span class="cm"># ★ Phase 2</span>
+│   └── <span class="kw">amplification.py</span>  <span class="cm"># ★ Phase 2</span>
+└── lab/                  <span class="cm"># Docker demo environment</span>
+    ├── docker-compose.yml
+    └── scripts/lab_walkthrough.sh
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <div class="card cyan-glow">
+          <h3>Core Engine</h3>
+          <ul>
+            <li>ThreadPoolExecutor concurrency</li>
+            <li>3 scan modes: active / passive / stealth</li>
+            <li>JSON + human-readable output</li>
+          </ul>
+        </div>
+        <div class="card green-glow">
+          <h3>Fingerprint Module</h3>
+          <ul>
+            <li>7-layer analysis pipeline</li>
+            <li>RMW implementation detection</li>
+            <li>Auto risk-level scoring</li>
+          </ul>
+        </div>
+        <div class="card amber-glow">
+          <h3>SROS2 Auditor</h3>
+          <ul>
+            <li>8 security checks</li>
+            <li>CVE pattern matching</li>
+            <li>Encryption vs sign-only detection</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 5: PHASE 2 ATTACK MODULES -->
+  <div class="slide" id="s5">
+    <div class="slide-label">05 / 10</div>
+    <div class="tag" style="border-color:var(--amber);color:var(--amber);">PHASE 2 — EXPLOITATION</div>
+    <h2>Offensive Modules</h2>
+    <div class="divider" style="background:var(--amber);"></div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px;">
+      <div class="module-item phase2">
+        <h4>topic_injection.py</h4>
+        <p>Publish arbitrary messages to any ROS 2 topic. Pre-built payloads for cmd_vel (velocity override, emergency stop, spin loop), nav goals, and joint commands.</p>
+      </div>
+      <div class="module-item phase2">
+        <h4>node_impersonation.py</h4>
+        <p>Spawn rogue DDS participants that masquerade as legitimate ROS 2 nodes. Man-in-the-middle publisher/subscriber chains. Intercept and replay messages.</p>
+      </div>
+      <div class="module-item phase2">
+        <h4>amplification.py</h4>
+        <p>RTPS reflection and amplification testing. Measure amplification ratios across DDS implementations. PoC for bandwidth exhaustion against unprotected ROS 2 deployments.</p>
+      </div>
+    </div>
+    <div class="code-block">
+<span class="cm"># cmd_vel injection — emergency stop all robots on domain 0</span>
+<span class="gr">$</span> python3 modules/topic_injection.py \
+    --topic /robot1/cmd_vel --payload emergency_stop --domain 0
+
+<span class="cm"># LIDAR blinding — inject fake obstacle data</span>
+<span class="gr">$</span> python3 modules/topic_injection.py \
+    --topic /robot1/scan --payload <span class="str">"fake_wall:180deg"</span> --rate 10
+
+<span class="cm"># Node impersonation — become /navigation_stack</span>
+<span class="gr">$</span> python3 modules/node_impersonation.py --spoof /navigation_stack --intercept
+    </div>
+  </div>
+
+  <!-- SLIDE 6: ATTACK CHAIN -->
+  <div class="slide" id="s6">
+    <div class="slide-label">06 / 10</div>
+    <div class="tag">KILL CHAIN</div>
+    <h2>Full Attack Demonstration</h2>
+    <div class="divider"></div>
+    <div class="chain">
+      <div class="chain-step">
+        <div class="step-num">01 · RECON</div>
+        <h4>Network Discovery</h4>
+        <p>RTPS multicast probe → enumerate DDS participants on subnet</p>
+      </div>
+      <div class="chain-step">
+        <div class="step-num">02 · ENUM</div>
+        <h4>ROS 2 Topology</h4>
+        <p>SEDP passive listen → map all topics, services, actions, node names</p>
+      </div>
+      <div class="chain-step">
+        <div class="step-num">03 · FINGERPRINT</div>
+        <h4>Target ID</h4>
+        <p>7-layer fingerprint → vendor, RMW, SROS2 posture, CVE exposure</p>
+      </div>
+      <div class="chain-step">
+        <div class="step-num">04 · EXPLOIT</div>
+        <h4>Topic Injection</h4>
+        <p>Craft & inject cmd_vel / LaserScan → control or blind target robot</p>
+      </div>
+      <div class="chain-step">
+        <div class="step-num">05 · PERSIST</div>
+        <h4>Node Impersonation</h4>
+        <p>Spawn rogue participant → become trusted node, intercept comms</p>
+      </div>
+    </div>
+    <div style="margin-top:24px;" class="code-block">
+<span class="cm"># Full chain — lab walkthrough script</span>
+<span class="gr">$</span> docker compose exec attacker bash
+<span class="gr">$</span> bash /lab/scripts/lab_walkthrough.sh
+<span class="cm">  [1/5] Network validation ............ ✓</span>
+<span class="cm">  [2/5] ROS2Reaper discovery .......... ✓  Found: 3 participants</span>
+<span class="cm">  [3/5] Fingerprinting targets ........ ✓  Fast DDS v2.12, SROS2: NONE</span>
+<span class="cm">  [4/5] Topic enumeration ............. ✓  /cmd_vel /scan /odom [+9 more]</span>
+<span class="cm">  [5/5] Attack chain ready ............ ✓  Begin Phase 2 modules</span>
+    </div>
+  </div>
+
+  <!-- SLIDE 7: DOCKER LAB -->
+  <div class="slide" id="s7">
+    <div class="slide-label">07 / 10</div>
+    <div class="tag cyan">DEMO ENVIRONMENT</div>
+    <h2>Multi-Robot Docker Lab</h2>
+    <div class="divider" style="background:var(--cyan);"></div>
+    <div class="two-col">
+      <div>
+        <table>
+          <thead>
+            <tr>
+              <th>Container</th>
+              <th>IP</th>
+              <th>Role</th>
+              <th>Security</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="mono">robot1</td>
+              <td class="mono td-amber">172.20.0.10</td>
+              <td>Victim AMR</td>
+              <td class="td-red">✗ None</td>
+            </tr>
+            <tr>
+              <td class="mono">robot2</td>
+              <td class="mono td-amber">172.20.0.11</td>
+              <td>Victim AMR</td>
+              <td class="td-red">✗ None</td>
+            </tr>
+            <tr>
+              <td class="mono">robot3_secured</td>
+              <td class="mono td-amber">172.20.0.12</td>
+              <td>Secured Robot</td>
+              <td class="td-green">✓ SROS2</td>
+            </tr>
+            <tr>
+              <td class="mono">attacker</td>
+              <td class="mono td-amber">172.20.0.100</td>
+              <td>ROS2Reaper</td>
+              <td class="td-cyan">N/A</td>
+            </tr>
+          </tbody>
+        </table>
+        <div style="margin-top:16px;" class="card amber-glow">
+          <h3>fake_robot.py Topics</h3>
+          <ul>
+            <li>/cmd_vel · /scan · /odom · /battery_state</li>
+            <li>/joint_states · /tf · /navigate_to_pose</li>
+            <li>Suspicious cmd_vel detection canary built in</li>
+          </ul>
+        </div>
+      </div>
+      <div>
+        <div class="code-block" style="font-size:12px;line-height:2;">
+<span class="cm"># Spin up the lab</span>
+<span class="gr">$</span> cd ros2reaper/lab
+<span class="gr">$</span> docker compose build
+<span class="gr">$</span> docker compose up -d
+
+<span class="cm"># Shell into attacker</span>
+<span class="gr">$</span> docker compose exec attacker bash
+
+<span class="cm"># Verify all robots online</span>
+<span class="gr">$</span> ros2 node list
+/robot1/fake_robot
+/robot2/fake_robot
+/robot3_secured/fake_robot
+
+<span class="cm"># Launch ROS2Reaper</span>
+<span class="gr">$</span> python3 ros2reaper.py \
+    --mode full --domain 0
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 8: DEFENSIVE POSTURE -->
+  <div class="slide" id="s8">
+    <div class="slide-label">08 / 10</div>
+    <div class="tag green">DEFENSIVE ANGLE</div>
+    <h2>What ROS2Reaper Reveals<br>About Your Defenses</h2>
+    <div class="divider green"></div>
+    <div class="grid-3">
+      <div class="card green-glow">
+        <h3>SROS2 Audit — 8 Checks</h3>
+        <ul>
+          <li>Security plugin enabled?</li>
+          <li>Encrypt vs sign-only mode</li>
+          <li>Metadata exposure in ParticipantData</li>
+          <li>Internal IP leakage in locators</li>
+          <li>Known CVE patterns (Fast DDS)</li>
+          <li>Default config detection</li>
+          <li>Domain isolation gaps</li>
+          <li>Security token completeness</li>
+        </ul>
+      </div>
+      <div class="card amber-glow">
+        <h3>Critical Topic Flagging</h3>
+        <ul>
+          <li>/cmd_vel — mobility control</li>
+          <li>/navigate_to_pose — nav goals</li>
+          <li>/scan — sensor integrity</li>
+          <li>/joint_states — arm control</li>
+          <li>/e_stop — emergency systems</li>
+          <li>/arm_command — manipulation</li>
+        </ul>
+      </div>
+      <div class="card cyan-glow">
+        <h3>Hardening Guidance</h3>
+        <ul>
+          <li>Enable SROS2 in Enforce mode</li>
+          <li>Sign AND encrypt all topics</li>
+          <li>Segment DDS domains by trust zone</li>
+          <li>Deploy ROS IDS (ML anomaly detection)</li>
+          <li>Restrict multicast to robot VLAN</li>
+          <li>Rotate DDS security keystores</li>
+        </ul>
+      </div>
+    </div>
+    <div style="margin-top:20px;padding:14px 20px;background:rgba(0,255,136,0.05);border:1px solid rgba(0,255,136,0.2);">
+      <p style="font-size:13px;"><span class="highlight-green">Responsible disclosure:</span> All Phase 2 PoCs tested only against authorized lab environments. CVEs discovered via ROS2Reaper fuzzing reported through proper channels. This tool is designed to raise the security floor of the robotics ecosystem, not lower it.</p>
+    </div>
+  </div>
+
+  <!-- SLIDE 9: ROADMAP -->
+  <div class="slide" id="s9">
+    <div class="slide-label">09 / 10</div>
+    <div class="tag amber">ROADMAP</div>
+    <h2>Where We're Taking This</h2>
+    <div class="divider" style="background:var(--amber);"></div>
+    <div class="grid-3">
+      <div style="padding:20px;background:var(--surface);border-top:2px solid var(--green);">
+        <div class="tag green" style="font-size:9px;">COMPLETE</div>
+        <h3 style="color:#fff;font-size:14px;margin-bottom:12px;">Phase 1 — Recon & Enum</h3>
+        <ul style="list-style:none;padding:0;font-size:13px;color:#8b949e;">
+          <li style="padding:3px 0;">✓ RTPS parser + scanner</li>
+          <li style="padding:3px 0;">✓ DDS fingerprinting (7-layer)</li>
+          <li style="padding:3px 0;">✓ Topic enumeration via SEDP</li>
+          <li style="padding:3px 0;">✓ SROS2 auditor (8 checks)</li>
+          <li style="padding:3px 0;">✓ Docker lab environment</li>
+        </ul>
+      </div>
+      <div style="padding:20px;background:var(--surface);border-top:2px solid var(--amber);">
+        <div class="tag amber" style="font-size:9px;">COMPLETE</div>
+        <h3 style="color:#fff;font-size:14px;margin-bottom:12px;">Phase 2 — Exploitation</h3>
+        <ul style="list-style:none;padding:0;font-size:13px;color:#8b949e;">
+          <li style="padding:3px 0;">✓ Topic injection attacks</li>
+          <li style="padding:3px 0;">✓ Node impersonation</li>
+          <li style="padding:3px 0;">✓ RTPS amplification PoC</li>
+          <li style="padding:3px 0;">✓ LIDAR blinding</li>
+          <li style="padding:3px 0;">✓ Multi-robot demo lab</li>
+        </ul>
+      </div>
+      <div style="padding:20px;background:var(--surface);border-top:2px solid var(--red);opacity:0.8;">
+        <div class="tag" style="font-size:9px;">PLANNED</div>
+        <h3 style="color:#fff;font-size:14px;margin-bottom:12px;">Phase 3 — Original Research</h3>
+        <ul style="list-style:none;padding:0;font-size:13px;color:#8b949e;">
+          <li style="padding:3px 0;">◦ DDSFuzz harness integration</li>
+          <li style="padding:3px 0;">◦ Fast DDS / Cyclone 0-day hunt</li>
+          <li style="padding:3px 0;">◦ ICS/OT DDS bridge attacks</li>
+          <li style="padding:3px 0;">◦ ROS IDS evasion techniques</li>
+          <li style="padding:3px 0;">◦ Second conference track: OT/ICS</li>
+        </ul>
+      </div>
+    </div>
+    <div style="margin-top:20px;font-family:'Share Tech Mono',monospace;font-size:13px;color:var(--text-dim);">
+      Target conferences: <span class="highlight-red">DEF CON</span> ICS Village · <span class="highlight-amber">Black Hat</span> Arsenal · <span class="highlight-green">RSA</span> Innovation Sandbox
+    </div>
+  </div>
+
+  <!-- SLIDE 10: CLOSING -->
+  <div class="slide" id="s10">
+    <div class="slide-label">10 / 10</div>
+    <div class="tag">FIN</div>
+    <h1 style="font-size:clamp(28px,4vw,52px);margin-bottom:16px;">The Robot Attack<br>Surface Is Real.</h1>
+    <div class="divider"></div>
+    <p style="max-width:600px;margin-bottom:32px;font-size:16px;line-height:1.8;">ROS 2 is being deployed in hospitals, factories, warehouses, and public roads. The security tooling gap is not theoretical — it's a live exploitable condition. <span class="highlight-red">ROS2Reaper</span> exists to prove that, responsibly.</p>
+    <div class="grid-2" style="max-width:700px;gap:16px;">
+      <div class="card green-glow">
+        <h3>Stats</h3>
+        <ul>
+          <li>8 modules across 2 phases</li>
+          <li>7-layer DDS fingerprinting</li>
+          <li>8 SROS2 security checks</li>
+          <li>4-container Docker lab</li>
+          <li>Full RTPS protocol dissection</li>
+        </ul>
+      </div>
+      <div class="card red-glow">
+        <h3>Responsible Use</h3>
+        <ul>
+          <li>Authorized environments only</li>
+          <li>Ethical hacking principles throughout</li>
+          <li>CVE disclosure via proper channels</li>
+          <li>Open source — community hardening</li>
+        </ul>
+      </div>
+    </div>
+    <div style="margin-top:32px;font-family:'Orbitron',monospace;font-size:12px;color:var(--text-dim);letter-spacing:0.3em;">
+      ROS2REAPER <span class="highlight-red">·</span> GH057X <span class="highlight-red">·</span> <span class="cursor highlight-green">FOR AUTHORIZED TESTING ONLY</span>
+    </div>
+  </div>
+
+</div><!-- /slideshow -->
+
+<div id="nav">
+  <button onclick="prevSlide()">◀ PREV</button>
+  <span id="slide-counter" class="mono">01 / 10</span>
+  <button onclick="nextSlide()">NEXT ▶</button>
+</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  let current = 0;
+
+  function goTo(n) {
+    slides[current].classList.remove('active');
+    current = (n + slides.length) % slides.length;
+    slides[current].classList.add('active');
+    document.getElementById('slide-counter').textContent =
+      String(current + 1).padStart(2,'0') + ' / ' + String(slides.length).padStart(2,'0');
+    document.getElementById('progress').style.width =
+      ((current + 1) / slides.length * 100) + '%';
+  }
+
+  function nextSlide() { goTo(current + 1); }
+  function prevSlide() { goTo(current - 1); }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') nextSlide();
+    if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp') prevSlide();
+  });
+
+  // Init progress
+  document.getElementById('progress').style.width = (1 / slides.length * 100) + '%';
+</script>
+</body>
+</html>
